@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GEOVISOR EQUIPAMIENTO URBANO - MACAS</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css" />
+  <style>
+    /* --- RESET BÁSICO OBLIGATORIO PARA MAPAS --- */
+    html, body { 
+      height: 100%; 
+      width: 100%; 
+      margin: 0; 
+      padding: 0; 
+      overflow: hidden;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+    }
+    
+    /* --- LAYOUT PRINCIPAL (ESTILO ABSOLUTO ROBUSTO) --- */
+    /* 1. Panel Lateral Izquierdo (Fijo) */
+    .sidebar {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      left: 0;
+      width: 320px;
+      background: #ffffff;
+      box-shadow: 2px 0 10px rgba(0,0,0,0.1);
+      z-index: 2000;
+      display: flex;
+      flex-direction: column;
+      border-right: 1px solid #e0e0e0;
+    }
+
+    /* 2. Contenedor del Mapa (Ocupa el resto) */
+    #map {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      left: 320px;
+      right: 0;
+      width: auto;
+      height: 100%;
+      z-index: 1; 
+      background: #e0e0e0;
+    }
+
+    /* --- ESTILOS DEL SIDEBAR --- */
+    .sidebar-header {
+      padding: 20px;
+      background: #2c3e50;
+      color: white;
+      border-bottom: 4px solid #3ecf8e;
+      flex-shrink: 0;
+    }
+
+    .sidebar-header h2 {
+      font-size: 16px; 
+      margin: 0;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .sidebar-content {
+      padding: 20px;
+      overflow-y: auto;
+      flex-grow: 1;
+    }
+
+    /* --- FORMULARIO --- */
+    .form-group { margin-bottom: 20px; }
+    .form-group label { 
+      display: block; margin-bottom: 8px; font-size: 13px; font-weight: 600; color: #555; text-transform: uppercase;
+    }
+    .form-group input, .form-group textarea { 
+      width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; background: #f9f9f9; transition: all 0.3s;
+    }
+    .form-group input:focus, .form-group textarea:focus { 
+      outline: none; border-color: #3ecf8e; background: #fff; box-shadow: 0 0 0 3px rgba(62, 207, 142, 0.1);
+    }
+    .coord-box {
+      background: #eefcf6; border: 1px dashed #3ecf8e; padding: 10px; border-radius: 6px; margin-top: 5px;
+    }
+    .coord-info { font-size: 11px; color: #2da96e; margin-top: 5px; text-align: center; font-weight: bold; }
+
+    .btn { 
+      padding: 14px; border: none; border-radius: 6px; cursor: pointer; width: 100%; font-weight: bold; font-size: 15px; text-transform: uppercase; transition: background 0.3s;
+    }
+    .btn-primary { background: #3ecf8e; color: white; box-shadow: 0 4px 6px rgba(62, 207, 142, 0.3); }
+    .btn-primary:hover { background: #2bbf7e; transform: translateY(-1px); }
+    .btn:disabled { background: #ccc; cursor: not-allowed; transform: none; }
+
+    /* --- PANEL DE CAPAS (Derecha) --- */
+    .info-panel {
+      position: absolute; top: 10px; right: 10px; 
+      background: white; padding: 15px;
+      border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.15); 
+      z-index: 3000;
+      max-width: 280px; max-height: 90vh; overflow-y: auto;
+      border-left: 4px solid #3ecf8e;
+    }
+    .info-panel h3 { 
+      margin-bottom: 12px; font-size: 14px; 
+      border-bottom: 1px solid #eee; padding-bottom: 8px; 
+      font-weight: 800; text-transform: uppercase; color: #333;
+    }
+    
+    .section-title {
+        font-size: 12px; font-weight: 700; color: #666; margin: 15px 0 5px 0; text-transform: uppercase; letter-spacing: 0.5px;
+    }
+
+    .layer-control { margin-bottom: 8px; padding: 2px 0; }
+    .layer-control label { display: flex; align-items: center; cursor: pointer; font-size: 13px; color: #444; }
+    .layer-control input[type="checkbox"] { margin-right: 10px; width: 16px; height: 16px; accent-color: #3ecf8e; }
+    .layer-control input[type="radio"] { margin-right: 10px; width: 16px; height: 16px; accent-color: #3ecf8e; }
+    
+    .legend { margin-top: 15px; padding-top: 15px; border-top: 1px solid #eee; }
+    .legend-item { display: flex; align-items: center; margin-bottom: 6px; font-size: 12px; color: #666; }
+    .legend-color { width: 18px; height: 18px; margin-right: 10px; border-radius: 4px; border: 1px solid rgba(0,0,0,0.1); }
+    
+    /* --- POPUP DE INFORMACIÓN --- */
+    .feature-info {
+      position: absolute; bottom: 20px; right: 20px;
+      background: white; padding: 15px;
+      border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.2); 
+      z-index: 3000;
+      width: 300px; max-height: 300px; overflow-y: auto; 
+      font-size: 13px; display: none;
+      border-top: 4px solid #3ecf8e;
+    }
+    
+    /* --- NOTIFICACIONES --- */
+    .status {
+      position: absolute; top: 20px; left: 50%; transform: translateX(-50%);
+      background: white; padding: 12px 25px; border-radius: 50px;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.2); z-index: 4000; 
+      font-size: 14px; font-weight: bold;
+      display: none; animation: slideDown 0.3s ease-out;
+    }
+    @keyframes slideDown { from { top: -50px; } to { top: 20px; } }
+    .status.error { background: #fff5f5; color: #e53e3e; border: 1px solid #feb2b2; }
+    .status.success { background: #f0fff4; color: #38a169; border: 1px solid #9ae6b4; }
+    .status.info { background: #ebf8ff; color: #3182ce; border: 1px solid #bee3f8; }
+
+  </style>
+</head>
+<body>
+  
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <h2>📝 REPORTE ESTADO EQUIPAMIENTO</h2>
+    </div>
+    
+    <div class="sidebar-content">
+      <form id="reporte-form">
+        <div class="form-group">
+          <label>Nombre del Ciudadano</label>
+          <input type="text" id="nombre" required placeholder="Ingrese su nombre completo">
+        </div>
+
+        <div class="form-group">
+          <label>Detalle del Reporte</label>
+          <textarea id="reporte" rows="4" required placeholder="Describa el estado del equipamiento, daños, observaciones..."></textarea>
+        </div>
+
+        <div class="form-group">
+          <label>Ubicación (Coordenadas)</label>
+          <div class="coord-box">
+            <input type="number" id="latitud" step="any" required readonly placeholder="Latitud" style="margin-bottom: 8px; background: transparent; border: none; padding: 0; font-weight: bold; color: #333;">
+            <div style="height: 1px; background: #ddd; margin: 5px 0;"></div>
+            <input type="number" id="longitud" step="any" required readonly placeholder="Longitud" style="background: transparent; border: none; padding: 0; font-weight: bold; color: #333;">
+          </div>
+          <div class="coord-info">👆 Haz clic en el mapa para ubicar el punto</div>
+        </div>
+
+        <button type="submit" class="btn btn-primary">Enviar Reporte</button>
+      </form>
+
+      <div style="margin-top: 30px; padding: 15px; background: #f8f9fa; border-radius: 8px; font-size: 12px; color: #777; line-height: 1.5;">
+        <strong>Instrucciones:</strong>
+        <ol style="padding-left: 20px; margin-top: 5px;">
+          <li>Navegue por el mapa hasta el lugar del incidente.</li>
+          <li>Haga clic sobre el mapa para capturar las coordenadas automáticamente.</li>
+          <li>Complete sus datos y la descripción.</li>
+          <li>Presione "Enviar Reporte".</li>
+        </ol>
+      </div>
+    </div>
+  </aside>
+  
+  <div id="map"></div>
+  
+  <div class="info-panel">
+    <h3>🗺️ GEOVISOR EQUIPAMIENTO URBANO - MACAS</h3>
+    
+    <div class="section-title">Mapa Base</div>
+    <div class="layer-control"><label><input type="radio" name="basemap" value="osm" checked> OpenStreetMap</label></div>
+    <div class="layer-control"><label><input type="radio" name="basemap" value="satellite"> Google Satélite</label></div>
+
+    <div class="section-title" style="margin-top: 15px;">Capas Temáticas</div>
+    <div class="layer-control"><label><input type="checkbox" id="reportes-check" checked> Reportes Ciudadanos</label></div>
+    <div class="layer-control"><label><input type="checkbox" id="equipamiento-check" checked> Equipamiento</label></div>
+    <div class="layer-control"><label><input type="checkbox" id="svu-check" checked> Sistema verde urbano SVU</label></div>
+    <div class="layer-control"><label><input type="checkbox" id="zonas-check" checked> Zonas PUGS</label></div>
+    <div class="layer-control"><label><input type="checkbox" id="parroquias-check" checked> Parroquias</label></div>
+
+    <div class="legend">
+      <strong>Simbología:</strong>
+      <div class="legend-item"><div class="legend-color" style="background: red; border-radius: 50%;"></div>Reportes</div>
+      <div class="legend-item"><div class="legend-color" style="border: 2px solid #F7D331; background: transparent;"></div>Equipamiento</div>
+      <div class="legend-item"><div class="legend-color" style="background: #31F7A8;"></div>Sistema Verde Urbano</div>
+      <div class="legend-item"><div class="legend-color" style="background: rgba(0, 0, 255, 0.3);"></div>Zonas PUGS (Transp. 70%)</div>
+      <div class="legend-item"><div class="legend-color" style="background: #cccccc;"></div>Parroquias</div>
+    </div>
+  </div>
+
+  <div class="feature-info" id="feature-info">
+    <h4>Información</h4>
+    <div id="info-content"></div>
+  </div>
+
+  <div class="status" id="status"></div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+  <script>
+    const config = {
+      url: 'https://ozhaivejnpqrvsbsudjb.supabase.co/rest/v1',
+      key: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im96aGFpdmVqbnBxcnZzYnN1ZGpiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY0NDkzODEsImV4cCI6MjA4MjAyNTM4MX0.24EfEjgcRBdY0JkI69fCuttIqx2HOj0WH7z4kvmBBNY',
+      telegram: {
+        botToken: '8336100409:AAFWDlw_WVQAdxp5IA3QZyX4QDV5hpVApXs',
+        chatId: '5552740448'
+      }
+    };
+
+    // Inicializar mapa
+    const map = L.map('map', { zoomControl: false }).setView([-2.308, -78.114], 14);
+    
+    // Zoom a la derecha
+    L.control.zoom({ position: 'topright' }).addTo(map);
+
+    // --- DEFINICIÓN DE MAPAS BASE ---
+    const osmLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© OpenStreetMap contributors'
+    });
+
+    const googleSatLayer = L.tileLayer('http://{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {
+      maxZoom: 20,
+      subdomains: ['mt0', 'mt1', 'mt2', 'mt3'],
+      attribution: '© Google Maps'
+    });
+
+    // Iniciar con OSM
+    osmLayer.addTo(map);
+
+    // Control de Mapas Base (Radio Buttons)
+    document.querySelectorAll('input[name="basemap"]').forEach(radio => {
+      radio.addEventListener('change', function(e) {
+        if (e.target.value === 'osm') {
+          map.removeLayer(googleSatLayer);
+          map.addLayer(osmLayer);
+        } else if (e.target.value === 'satellite') {
+          map.removeLayer(osmLayer);
+          map.addLayer(googleSatLayer);
+        }
+      });
+    });
+
+    // Grupos de capas
+    const layers = {
+      parroquias: L.layerGroup().addTo(map), 
+      zonas: L.layerGroup().addTo(map),      
+      svu: L.layerGroup().addTo(map),        
+      equipamiento: L.layerGroup().addTo(map), 
+      reportes: L.layerGroup().addTo(map)    
+    };
+
+    let tempMarker = null;
+
+    async function sendTelegramNotification(reporte) {
+      try {
+        const fecha = new Date(reporte.fecha).toLocaleString('es-EC');
+        const mapLink = `https://www.google.com/maps?q=${reporte.latitud},${reporte.longitud}`;
+        const message = `
+🚨 *NUEVO REPORTE - MACAS*
+━━━━━━━━━━━━━━━━━━
+👤 *Usuario:* ${reporte.nombre}
+📅 *Fecha:* ${fecha}
+📝 *Detalle:* ${reporte.reporte}
+📍 *Ubicación:* ${mapLink}
+━━━━━━━━━━━━━━━━━━`.trim();
+
+        const response = await fetch(`https://api.telegram.org/bot${config.telegram.botToken}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ chat_id: config.telegram.chatId, text: message, parse_mode: 'Markdown', disable_web_page_preview: false })
+        });
+        return response.ok;
+      } catch (error) {
+        console.error('Error Telegram:', error);
+        return false;
+      }
+    }
+
+    function showStatus(msg, type = 'info') {
+      const el = document.getElementById('status');
+      el.textContent = msg;
+      el.className = `status ${type}`;
+      el.style.display = 'block';
+      setTimeout(() => el.style.display = 'none', 4000);
+    }
+
+    // Evento Click Mapa
+    map.on('click', function(e) {
+      if (e.originalEvent.target.tagName !== 'path') {
+        document.getElementById('feature-info').style.display = 'none';
+      }
+
+      const lat = e.latlng.lat.toFixed(6);
+      const lng = e.latlng.lng.toFixed(6);
+      
+      document.getElementById('latitud').value = lat;
+      document.getElementById('longitud').value = lng;
+      
+      if (tempMarker) map.removeLayer(tempMarker);
+      tempMarker = L.marker(e.latlng).addTo(map);
+      
+      showStatus('📍 Coordenadas capturadas en el panel', 'success');
+    });
+
+    async function loadLayer(tableName, layerGroup, color, type = 'polygon', opacity = 0.6) {
+      try {
+        const response = await fetch(`${config.url}/${tableName}?select=*&limit=5000`, { 
+          headers: { 'apikey': config.key, 'Authorization': `Bearer ${config.key}` }
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const data = await response.json();
+        if (!data.length) return;
+
+        layerGroup.clearLayers();
+        const first = data[0];
+        const geomKey = Object.keys(first).find(k => k.match(/geom|geometry/i));
+        if (!geomKey) return;
+
+        data.forEach(item => {
+          if (!item[geomKey]) return;
+          try {
+            const geojson = typeof item[geomKey] === 'string' ? JSON.parse(item[geomKey]) : item[geomKey];
+            let style = {};
+            let pointToLayer = null;
+
+            if (type === 'point') {
+               pointToLayer = (geoJsonPoint, latlng) => L.circleMarker(latlng, { radius: 6, fillColor: color, color: '#fff', weight: 1, opacity: 1, fillOpacity: 0.8 });
+            } else if (type === 'line') {
+              style = { color: color, weight: 1.5, opacity: 0.8 };
+            } else {
+              style = { fillColor: color, weight: 2, opacity: 1, color: color, fillOpacity: opacity };
+            }
+
+            const layer = L.geoJSON(geojson, { style, pointToLayer });
+            layer.on('click', () => {
+              showFeatureInfo(item, tableName);
+              L.DomEvent.stopPropagation; 
+            });
+            layer.addTo(layerGroup);
+          } catch (e) { console.warn(e); }
+        });
+        console.log(`✅ ${tableName} cargada: ${data.length}`);
+      } catch (err) { console.error(err); }
+    }
+
+    function showFeatureInfo(props, tableName) {
+      const content = document.getElementById('info-content');
+      let displayName = tableName.replace(/_/g, ' ');
+      if (tableName === 'svu_4326') displayName = 'SISTEMA VERDE URBANO SVU';
+      
+      let html = `<strong style="color:#3ecf8e; text-transform:uppercase;">${displayName}</strong><br><hr style="margin:5px 0">`;
+      Object.keys(props).forEach(k => {
+        if (!k.match(/geom|geometry|id|created_at/i)) html += `<strong>${k}:</strong> ${props[k]}<br>`;
+      });
+      content.innerHTML = html;
+      document.getElementById('feature-info').style.display = 'block';
+    }
+
+    // Configuración de Capas
+    const checks = {
+      'reportes-check': ['reportes_equipamiento', layers.reportes, 'red', 'point', 1],
+      'equipamiento-check': ['equipamiento_urbano_4326', layers.equipamiento, '#F7D331', 'polygon', 0],
+      'svu-check': ['svu_4326', layers.svu, '#31F7A8', 'line', 0.8],
+      'zonas-check': ['zonas_planificacion_4326', layers.zonas, 'blue', 'polygon', 0.3],
+      'parroquias-check': ['parroquias_4326', layers.parroquias, '#cccccc', 'polygon', 0.6]
+    };
+
+    Object.keys(checks).forEach(id => {
+      const [table, layer, color, type, opacity] = checks[id];
+      loadLayer(table, layer, color, type, opacity);
+      document.getElementById(id).addEventListener('change', (e) => {
+        e.target.checked ? map.addLayer(layer) : map.removeLayer(layer);
+      });
+    });
+
+    document.getElementById('reporte-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const btn = e.target.querySelector('button[type="submit"]');
+      btn.disabled = true;
+      btn.textContent = 'Enviando...';
+      const data = {
+        nombre: document.getElementById('nombre').value,
+        reporte: document.getElementById('reporte').value,
+        latitud: parseFloat(document.getElementById('latitud').value),
+        longitud: parseFloat(document.getElementById('longitud').value),
+        fecha: new Date().toISOString()
+      };
+      try {
+        const res = await fetch(`${config.url}/reportes_equipamiento`, {
+          method: 'POST',
+          headers: { 'apikey': config.key, 'Authorization': `Bearer ${config.key}`, 'Content-Type': 'application/json', 'Prefer': 'return=representation' },
+          body: JSON.stringify(data)
+        });
+        if (!res.ok) throw new Error('Error guardando');
+        await sendTelegramNotification(data);
+        showStatus('✅ Reporte enviado con éxito', 'success');
+        document.getElementById('reporte-form').reset();
+        loadLayer('reportes_equipamiento', layers.reportes, 'red', 'point', 1);
+      } catch (err) {
+        showStatus('❌ Error al enviar', 'error');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Enviar Reporte';
+      }
+    });
+  </script>
+</body>
+</html>
