@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>GEOVISOR EQUIPAMIENTO URBANO - MACAS</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css" />
+  <style>
+    /* --- RESET BÁSICO --- */
+    html, body { 
+      height: 100%; width: 100%; margin: 0; padding: 0; 
+      overflow: hidden; font-family: 'Segoe UI', sans-serif; 
+    }
+    
+    /* --- LAYOUT ESCRITORIO (POR DEFECTO) --- */
+    .sidebar {
+      position: absolute; top: 0; bottom: 0; left: 0;
+      width: 320px; background: white; box-shadow: 2px 0 10px rgba(0,0,0,0.1);
+      z-index: 2000; display: flex; flex-direction: column;
+      transition: transform 0.3s ease; /* Animación suave */
+    }
+
+    #map {
+      position: absolute; top: 0; bottom: 0; left: 320px; right: 0;
+      width: auto; height: 100%; z-index: 1; background: #e0e0e0;
+      transition: left 0.3s ease;
+    }
+
+    /* --- ESTILOS SIDEBAR --- */
+    .sidebar-header {
+      padding: 20px; background: #2c3e50; color: white;
+      border-bottom: 4px solid #3ecf8e; display: flex; 
+      justify-content: space-between; align-items: center;
+    }
+    .sidebar-header h2 { font-size: 16px; margin: 0; font-weight: 700; }
+    
+    /* Botón cerrar solo visible en móvil */
+    .close-sidebar-btn { 
+      display: none; background: none; border: none; 
+      color: white; font-size: 20px; cursor: pointer; 
+    }
+
+    .sidebar-content { padding: 20px; overflow-y: auto; flex-grow: 1; }
+
+    /* --- FORMULARIO --- */
+    .form-group { margin-bottom: 15px; }
+    .form-group label { display: block; margin-bottom: 5px; font-size: 12px; font-weight: 700; color: #555; }
+    .form-group input, .form-group textarea { 
+      width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 5px; font-size: 14px; 
+    }
+    .coord-box { background: #eefcf6; border: 1px dashed #3ecf8e; padding: 10px; border-radius: 5px; }
+    .coord-info { font-size: 11px; color: #2da96e; margin-top: 5px; text-align: center; }
+    
+    .btn-primary { 
+      background: #3ecf8e; color: white; padding: 12px; border: none; 
+      border-radius: 5px; width: 100%; font-weight: bold; cursor: pointer; 
+    }
+
+    /* --- PANEL CAPAS (Derecha) --- */
+    .info-panel {
+      position: absolute; top: 10px; right: 10px; 
+      background: white; padding: 15px; border-radius: 8px; 
+      box-shadow: 0 4px 15px rgba(0,0,0,0.2); 
+      z-index: 3000; max-width: 280px; max-height: 85vh; overflow-y: auto;
+      border-left: 4px solid #3ecf8e;
+      transition: transform 0.3s ease;
+    }
+    .section-title { font-size: 12px; font-weight: 700; color: #666; margin: 10px 0 5px; text-transform: uppercase; }
+    
+    /* --- BOTONES MÓVILES (Ocultos en escritorio) --- */
+    .mobile-toggle {
+      display: none; position: absolute; z-index: 4000;
+      background: white; border: none; padding: 10px 15px;
+      border-radius: 50px; box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+      font-weight: bold; color: #2c3e50; cursor: pointer; font-size: 14px;
+    }
+    #btn-open-report { top: 10px; left: 10px; border-left: 4px solid #3ecf8e; }
+    #btn-open-layers { top: 10px; right: 50px; border-right: 4px solid #3ecf8e; } /* Dejamos espacio para el zoom */
+
+    /* --- MEDIA QUERIES (ADAPTACIÓN MÓVIL) --- */
+    @media (max-width: 768px) {
+      /* 1. Mapa pantalla completa */
+      #map { left: 0; width: 100%; }
+
+      /* 2. Sidebar Reportes (Oculto por defecto) */
+      .sidebar {
+        transform: translateX(-100%); /* Escondido a la izquierda */
+        width: 85%; /* No ocupa toda la pantalla para poder tocar fuera */
+        max-width: 320px;
+      }
+      .sidebar.active { transform: translateX(0); box-shadow: 5px 0 15px rgba(0,0,0,0.3); }
+      .close-sidebar-btn { display: block; } /* Mostrar X para cerrar */
+
+      /* 3. Panel Capas (Oculto por defecto) */
+      .info-panel {
+        transform: translateX(120%); /* Escondido a la derecha */
+        top: 60px; right: 10px; max-width: 250px;
+      }
+      .info-panel.active { transform: translateX(0); }
+
+      /* 4. Mostrar botones flotantes */
+      .mobile-toggle { display: flex; align-items: center; gap: 5px; }
+      
+      /* Ajuste controles Leaflet */
+      .leaflet-top.leaflet-right { top: 60px; } /* Bajar zoom para no tapar botón capas */
+    }
+
+    /* Simbología */
+    .legend-item { display: flex; align-items: center; margin-bottom: 5px; font-size: 12px; }
+    .legend-color { width: 18px; height: 18px; margin-right: 8px; border-radius: 3px; }
+    
+    /* Notificaciones */
+    .status {
+      position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%);
+      background: rgba(0,0,0,0.8); color: white; padding: 10px 20px; 
+      border-radius: 30px; z-index: 5000; font-size: 13px; display: none; text-align: center;
+    }
+  </style>
+</head>
+<body>
+
+  <button id="btn-open-report" class="mobile-toggle" onclick="toggleSidebar()">
+    📝 Reportar
+  </button>
+  <button id="btn-open-layers" class="mobile-toggle" onclick="toggleLayers()">
+    🗺️ Capas
+  </button>
+
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <h2>📝 REPORTE ESTADO</h2>
+      <button class="close-sidebar-btn" onclick="toggleSidebar()">✕</button>
+    </div>
+    
+    <div class="sidebar-content">
+      <form id="reporte-form">
+        <div class="form-group">
+          <label>Nombre del Ciudadano</label>
+          <input type="text" id="nombre" required placeholder="Nombre completo">
+        </div>
+        <div class="form-group">
+          <label>Detalle</label>
+          <textarea id="reporte" rows="3" required placeholder="Describa el daño u observación..."></textarea>
+        </div>
+        <div class="form-group">
+          <label>Ubicación</label>
+          <div class="coord-box">
+            <input type="number" id="latitud" step="any" required readonly placeholder="Latitud" style="background:none; border:none; width:100%; font-weight:bold;">
+            <hr style="border:0; border-top:1px dashed #ccc; margin:5px 0;">
+            <input type="number" id="longitud" step="any" required readonly placeholder="Longitud" style="background:none; border:none; width:100%; font-weight:bold;">
+          </div>
+          <div class="coord-info">👆 Toca el mapa para ubicar</div>
+        </div>
+        <button type="submit" class="btn-primary">ENVIAR REPORTE</button>
+      </form>
+    </div>
+  </aside>
+  
+  <div id="map"></div>
+  
+  <div class="info-panel" id="info-panel">
+    <h3>GEOVISOR MACAS</h3>
+    
+    <div class="section-title">Mapa Base</div>
+    <div style="margin-bottom: 10px;">
+      <label style="display:flex; align-items:center; margin-bottom:5px; font-size:13px;">
+        <input type="radio" name="basemap" value="osm" checked style="margin-right:8px; accent-color:#3ecf8e;"> OpenStreetMap
+      </label>
+      <label style="display:flex; align-items:center; font-size:13px;">
+        <input type="radio" name="basemap" value="satellite" style="margin-right:8px; accent-color:#3ecf8e;"> Google Satélite
+      </label>
+    </div>
+
+    <div class="section-title">Capas</div>
+    <div id="layers-list">
+      <label style="display:flex; align-items:center; margin-bottom:5px; font-size:13px;">
+        <input type="checkbox" id="reportes-check" checked style="margin-right:8px; accent-color:#3ecf8e;"> Reportes
+      </label>
+      <label style="display:flex; align-items:center; margin-bottom:5px; font-size:13px;">
+        <input type="checkbox" id="equipamiento-check" checked style="margin-right:8px; accent-color:#3ecf8e;"> Equipamiento
+      </label>
+      <label style="display:flex; align-items:center; margin-bottom:5px; font-size:13px;">
+        <input type="checkbox" id="svu-check" checked style="margin-right:8px; accent-color:#3ecf8e;"> SVU
+      </label>
+      <label style="display:flex; align-items:center; margin-bottom:5px; font-size:13px;">
+        <input type="checkbox" id="zonas-check" checked style="margin-right:8px; accent-color:#3ecf8e;"> Zonas PUGS
+      </label>
+      <label style="display:flex; align-items:center; margin-bottom:5px; font-size:13px;">
+        <input type="checkbox" id="parroquias-check" checked style="margin-right:8px; accent-color:#3ecf8e;"> Parroquias
+      </label>
+    </div>
+
+    <div class="section-title">Simbología</div>
+    <div class="legend">
+      <div class="legend-item"><div class="legend-color" style="background: red; border-radius: 50%;"></div>Reportes</div>
+      <div class="legend-item"><div class="legend-color" style="border: 2px solid #F7D331;"></div>Equipamiento</div>
+      <div class="legend-item"><div class="legend-color" style="background: #31F7A8; height:3px; margin-top:8px;"></div>SVU</div>
+      <div class="legend-item"><div class="legend-color" style="background: rgba(0, 0, 255, 0.3);"></div>Zonas (70% Tr.)</div>
+      <div class="legend-item"><div class="legend-color" style="background: #cccccc;"></div>Parroquias</div>
+    </div>
+  </div>
+
+  <div class="feature-info" id="feature-info" style="display:none; position:absolute; bottom:60px; right:10px; background:white; padding:10px; border-radius:5px; box-shadow:0 0 10px rgba(0,0,0,0.3); z-index:3500; max-width:250px; max-height:200px; overflow:auto; font-size:12px;">
+    <div style="display:flex; justify-content:space-between; margin-bottom:5px; border-bottom:1px solid #eee; padding-bottom:5px;">
+      <strong style="color:#3ecf8e;">INFORMACIÓN</strong>
+      <span onclick="document.getElementById('feature-info').style.display='none'" style="cursor:pointer; font-weight:bold;">✕</span>
+    </div>
+    <div id="info-content"></div>
+  </div>
+
+  <div class="status" id="status"></div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+  <script>
+    const config = {
+      url: 'https://ozhaivejnpqrvsbsudjb.supabase.co/rest/v1',
+      key: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im96aGFpdmVqbnBxcnZzYnN1ZGpiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY0NDkzODEsImV4cCI6MjA4MjAyNTM4MX0.24EfEjgcRBdY0JkI69fCuttIqx2HOj0WH7z4kvmBBNY',
+      telegram: {
+        botToken: '8336100409:AAFWDlw_WVQAdxp5IA3QZyX4QDV5hpVApXs',
+        chatId: '5552740448'
+      }
+    };
+
+    // --- LÓGICA RESPONSIVA (MENÚS) ---
+    function toggleSidebar() {
+      document.getElementById('sidebar').classList.toggle('active');
+      // Si abrimos sidebar, cerramos capas en móvil
+      if(document.getElementById('sidebar').classList.contains('active') && window.innerWidth <= 768) {
+        document.getElementById('info-panel').classList.remove('active');
+      }
+    }
+
+    function toggleLayers() {
+      document.getElementById('info-panel').classList.toggle('active');
+      // Si abrimos capas, cerramos sidebar
+      if(document.getElementById('info-panel').classList.contains('active')) {
+        document.getElementById('sidebar').classList.remove('active');
+      }
+    }
+
+    // --- MAPA ---
+    const map = L.map('map', { zoomControl: false }).setView([-2.308, -78.114], 14);
+    L.control.zoom({ position: 'topright' }).addTo(map);
+
+    // Mapas Base
+    const osmLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OSM' });
+    const googleSat = L.tileLayer('http://{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', { 
+      maxZoom: 20, subdomains:['mt0','mt1','mt2','mt3'], attribution: '© Google' 
+    });
+    
+    osmLayer.addTo(map); // Default
+
+    // Cambio de mapa base
+    document.querySelectorAll('input[name="basemap"]').forEach(r => {
+      r.addEventListener('change', (e) => {
+        if(e.target.value === 'osm') { map.addLayer(osmLayer); map.removeLayer(googleSat); }
+        else { map.addLayer(googleSat); map.removeLayer(osmLayer); }
+      });
+    });
+
+    // --- CAPAS ---
+    const layers = {
+      parroquias: L.layerGroup().addTo(map),
+      zonas: L.layerGroup().addTo(map),
+      svu: L.layerGroup().addTo(map),
+      equipamiento: L.layerGroup().addTo(map),
+      reportes: L.layerGroup().addTo(map)
+    };
+
+    let tempMarker = null;
+
+    // --- NOTIFICACIONES ---
+    function showStatus(msg) {
+      const el = document.getElementById('status');
+      el.textContent = msg; el.style.display = 'block';
+      setTimeout(() => el.style.display = 'none', 4000);
+    }
+
+    // --- CLICK EN MAPA ---
+    map.on('click', function(e) {
+      // En móvil, si tocas el mapa, cerramos menús si están abiertos
+      if(window.innerWidth <= 768) {
+        document.getElementById('sidebar').classList.remove('active');
+        document.getElementById('info-panel').classList.remove('active');
+      }
+
+      // Lógica de captura
+      const lat = e.latlng.lat.toFixed(6);
+      const lng = e.latlng.lng.toFixed(6);
+      document.getElementById('latitud').value = lat;
+      document.getElementById('longitud').value = lng;
+      
+      if(tempMarker) map.removeLayer(tempMarker);
+      tempMarker = L.marker(e.latlng).addTo(map);
+      
+      showStatus('📍 Punto capturado (Abre el reporte para ver)');
+      
+      // Si estamos en móvil, sugerir abrir reporte
+      if(window.innerWidth <= 768) {
+        document.getElementById('btn-open-report').style.animation = "pulse 1s infinite";
+        setTimeout(() => document.getElementById('btn-open-report').style.animation = "", 3000);
+      }
+    });
+
+    // --- CARGA DE DATOS ---
+    async function loadLayer(tableName, layerGroup, color, type, opacity=0.6) {
+      try {
+        const res = await fetch(`${config.url}/${tableName}?select=*&limit=5000`, { 
+          headers: { 'apikey': config.key, 'Authorization': `Bearer ${config.key}` }
+        });
+        const data = await res.json();
+        if(!data.length) return;
+
+        layerGroup.clearLayers();
+        const first = data[0];
+        const geomKey = Object.keys(first).find(k => k.match(/geom|geometry/i));
+        if(!geomKey) return;
+
+        data.forEach(item => {
+          if(!item[geomKey]) return;
+          try {
+            const geojson = typeof item[geomKey] === 'string' ? JSON.parse(item[geomKey]) : item[geomKey];
+            let style = {};
+            let pointToLayer = null;
+
+            if(type === 'point') {
+               pointToLayer = (geo, latlng) => L.circleMarker(latlng, { radius: 6, fillColor: color, color: '#fff', weight:1, opacity:1, fillOpacity:0.8 });
+            } else if(type === 'line') {
+              // SVU: Línea fina #31F7A8
+              style = { color: color, weight: 1.5, opacity: 0.8 };
+            } else if(type === 'border') {
+              // Equipamiento: Borde Amarillo Oro #F7D331
+              style = { color: color, weight: 2, fillOpacity: 0, opacity: 1 };
+            } else {
+              // Zonas/Parroquias
+              style = { fillColor: color, weight: 1, color: color, fillOpacity: opacity };
+            }
+
+            const layer = L.geoJSON(geojson, { style, pointToLayer });
+            layer.on('click', (e) => {
+              L.DomEvent.stopPropagation(e);
+              showFeatureInfo(item, tableName);
+            });
+            layer.addTo(layerGroup);
+          } catch(e) {}
+        });
+      } catch(err) { console.error(err); }
+    }
+
+    function showFeatureInfo(props, tableName) {
+      const div = document.getElementById('feature-info');
+      const content = document.getElementById('info-content');
+      let name = tableName.replace(/_/g, ' ').toUpperCase();
+      if(name.includes('SVU')) name = 'SISTEMA VERDE URBANO';
+      
+      let html = `<b style="font-size:11px; color:#555;">${name}</b><br>`;
+      Object.keys(props).forEach(k => {
+        if(!k.match(/geom|geometry|id|created/i)) html += `${k}: <b>${props[k]}</b><br>`;
+      });
+      content.innerHTML = html;
+      div.style.display = 'block';
+    }
+
+    // --- CONFIGURACIÓN DE CAPAS ---
+    const checks = {
+      'reportes-check': ['reportes_equipamiento', layers.reportes, 'red', 'point', 1],
+      'equipamiento-check': ['equipamiento_urbano_4326', layers.equipamiento, '#F7D331', 'border', 0],
+      'svu-check': ['svu_4326', layers.svu, '#31F7A8', 'line', 0.8],
+      'zonas-check': ['zonas_planificacion_4326', layers.zonas, 'blue', 'polygon', 0.3], // 70% transp
+      'parroquias-check': ['parroquias_4326', layers.parroquias, '#cccccc', 'polygon', 0.6]
+    };
+
+    Object.keys(checks).forEach(id => {
+      const [tbl, lyr, col, typ, op] = checks[id];
+      loadLayer(tbl, lyr, col, typ, op);
+      document.getElementById(id).addEventListener('change', (e) => {
+        e.target.checked ? map.addLayer(lyr) : map.removeLayer(lyr);
+      });
+    });
+
+    // --- ENVÍO REPORTE ---
+    document.getElementById('reporte-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const btn = e.target.querySelector('button');
+      btn.disabled = true; btn.textContent = 'Enviando...';
+      
+      const data = {
+        nombre: document.getElementById('nombre').value,
+        reporte: document.getElementById('reporte').value,
+        latitud: parseFloat(document.getElementById('latitud').value),
+        longitud: parseFloat(document.getElementById('longitud').value),
+        fecha: new Date().toISOString()
+      };
+
+      try {
+        const res = await fetch(`${config.url}/reportes_equipamiento`, {
+          method: 'POST',
+          headers: { 'apikey': config.key, 'Authorization': `Bearer ${config.key}`, 'Content-Type': 'application/json', 'Prefer': 'return=representation' },
+          body: JSON.stringify(data)
+        });
+        if(!res.ok) throw new Error('Error');
+        
+        // Notificación Telegram
+        const mapLink = `http://google.com/maps?q=${data.latitud},${data.longitud}`;
+        const msg = `🚨 *REPORTE MACAS*\n👤 ${data.nombre}\n📝 ${data.reporte}\n📍 ${mapLink}`;
+        await fetch(`https://api.telegram.org/bot${config.telegram.botToken}/sendMessage`, {
+          method: 'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ chat_id: config.telegram.chatId, text: msg, parse_mode: 'Markdown' })
+        });
+
+        showStatus('✅ Enviado con éxito');
+        document.getElementById('reporte-form').reset();
+        if(window.innerWidth <= 768) toggleSidebar(); // Cerrar en móvil
+        loadLayer('reportes_equipamiento', layers.reportes, 'red', 'point', 1);
+      } catch(err) { showStatus('❌ Error al enviar'); } 
+      finally { btn.disabled = false; btn.textContent = 'ENVIAR REPORTE'; }
+    });
+  </script>
+</body>
+</html>
